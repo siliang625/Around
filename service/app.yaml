@@ -1,2 +1,4 @@
+# running a go project
 runtime: go
+# dynamic vm suported based on capacity
 env: flex
