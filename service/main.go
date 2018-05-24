@@ -24,7 +24,7 @@ const (
 	TYPE     = "post"
 	DISTANCE = "200km"
 	// Needs to update this URL if you deploy it to cloud.
-	ES_URL = "http://104.196.104.104:9200"
+	ES_URL = "http://35.237.20.173:9200"
 	BUCKET_NAME = "post-images-31415926"
 	PROJECT_ID  = "curious-domain-203921"
 	BT_INSTANCE = "around-post"
@@ -99,7 +99,7 @@ func main() {
 	//TODO: r.Handle("/delete",xxx)
 
 	http.Handle("/", r)
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Fatal(http.ListenAndServe(":8081", nil))
 
 }
 
