@@ -26,7 +26,7 @@ const (
 	// Needs to update this URL if you deploy it to cloud.
 	ES_URL = "http://35.237.20.173:9200"
 	BUCKET_NAME = "post-image-204022"
-	PROJECT_ID  = "curious-domain-203921"
+	PROJECT_ID  = "around-204022"
 	BT_INSTANCE = "around-post"
 )
 
@@ -99,7 +99,7 @@ func main() {
 	//TODO: r.Handle("/delete",xxx)
 
 	http.Handle("/", r)
-	log.Fatal(http.ListenAndServe(":8081", nil))
+	log.Fatal(http.ListenAndServe(":8080", nil))
 
 }
 
