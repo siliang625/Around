@@ -35,10 +35,11 @@ func checkUser(username, password string) bool {
 		Query(termQuery).
 		Pretty(true).
 		Do()
-	if err != nil {
-		fmt.Printf("ES query failed %v\n", err)
-		return false
-	}
+    if err != nil {
+  		fmt.Printf("ES query failed %v\n", err)
+  		return false
+  	}
+
 
 	var tyu User
 	for _, item := range queryResult.Each(reflect.TypeOf(tyu)) {

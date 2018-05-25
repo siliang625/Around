@@ -5,6 +5,7 @@ import (
 	"cloud.google.com/go/storage"
 	"context"
 	"encoding/json"
+	"net/http"
 	"fmt"
 	"github.com/auth0/go-jwt-middleware"
 	"github.com/dgrijalva/jwt-go"
@@ -13,7 +14,6 @@ import (
 	"gopkg.in/olivere/elastic.v3"
 	"io"
 	"log"
-	"net/http"
 	"reflect"
 	"strconv"
 	"strings"
@@ -23,7 +23,7 @@ const (
 	INDEX    = "around"
 	TYPE     = "post"
 	DISTANCE = "200km"
-	// Needs to update this URL if you deploy it to cloud.
+	//TODO: update the following information when deploing
 	ES_URL = "http://35.237.20.173:9200"
 	BUCKET_NAME = "post-image-204022"
 	PROJECT_ID  = "around-204022"
@@ -48,6 +48,7 @@ var mySigningKey = []byte("secret")
 
 func main() {
 	//Start from scratch: deleteIndex()
+	// In order to create index in ES, we need to update main
 	// Create a client
 	client, err := elastic.NewClient(elastic.SetURL(ES_URL), elastic.SetSniff(false))
 	if err != nil {
@@ -60,8 +61,11 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	// If not, create a new mapping. For other fields (user, message, etc.)
+	// no need to have mapping as they are default. For geo location (lat, lon),
+	// we need to tell ES that they are geo points instead of two float points
+	// such that ES will use Geo-indexing for them (K-D tree)
 	if !exists {
-		// Create a new index.
 		mapping := `{
                     "mappings":{
                            "post":{
@@ -74,6 +78,7 @@ func main() {
                     }
              }
              `
+		 // Create this index
 		_, err := client.CreateIndex(INDEX).Body(mapping).Do()
 		if err != nil {
 			// Handle error
@@ -99,10 +104,11 @@ func main() {
 	//TODO: r.Handle("/delete",xxx)
 
 	http.Handle("/", r)
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Fatal(http.ListenAndServe(":8081", nil))
 
 }
 
+//construct a Post object p to hold a user's post request
 func handlerPost(w http.ResponseWriter, r *http.Request) {
 	// Parse from body of request to get a json object.
 	user := r.Context().Value("user")
@@ -118,7 +124,7 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 	// If the file size is larger than maxMemory, the rest of the data will be saved in a system temporary file.
 	r.ParseMultipartForm(32 << 20)
 
-	// Parse from form data.
+	// Parse from from data.
 	fmt.Printf("Received one post request %s\n", r.FormValue("message"))
 	lat, _ := strconv.ParseFloat(r.FormValue("lat"), 64)
 	lon, _ := strconv.ParseFloat(r.FormValue("lon"), 64)
@@ -130,9 +136,11 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 			Lon: lon,
 		},
 	}
-
+  // add a new document to the index
 	//TODO: Append its unique ID.
 	id := uuid.New()
+
+
 	p.Id = id
 
 	file, _, err := r.FormFile("image")
@@ -156,7 +164,8 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 	// Update the media link after saving to GCS.
 	p.Url = attrs.MediaLink
 
-	// Save to ES.
+	//Save to ES
+	//saveToES(&p, id)
 	saveToES(p, id)
 
 	// Save to BigTable.
@@ -331,40 +340,46 @@ func deleteIndex() {
 	fmt.Printf("Index is deleted. Restart service to recreate mapping.\n")
 }
 
+//
 func handlerSearch(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("Received one request for search")
 	lat, _ := strconv.ParseFloat(r.URL.Query().Get("lat"), 64)
 	lon, _ := strconv.ParseFloat(r.URL.Query().Get("lon"), 64)
 	// range is optional
 	ran := DISTANCE
+	//to get request parameters from url: lat := r.URL.Query().Get("lat")
 	if val := r.URL.Query().Get("range"); val != "" {
 		ran = val + "km"
 	}
 
 	fmt.Printf("Search received: %f %f %s\n", lat, lon, ran)
 
-	// Create a client
+	// Create a client: create a connection to ES,
 	client, err := elastic.NewClient(elastic.SetURL(ES_URL), elastic.SetSniff(false))
+  //If there is err, return
 	if err != nil {
 		panic(err)
 		return
 	}
 
-	// Define geo distance query as specified in
+  // Prepare a geo based query to find posts within a geo box.
 	// https://www.elastic.co/guide/en/elasticsearch/reference/5.2/query-dsl-geo-distance-query.html
 	q := elastic.NewGeoDistanceQuery("location")
 	q = q.Distance(ran).Lat(lat).Lon(lon)
 
-	// Some delay may range from seconds to minutes. So if you don't get enough results. Try it later.
+  //Get the results based on Index and query (q)
+	// Some delay may range from seconds to minutes.
+	// So if you don't get enough results. Try it later.
 	searchResult, err := client.Search().
 		Index(INDEX).
 		Query(q).
-		Pretty(true).
+		Pretty(true).  //format output
 		Do()
-	if err != nil {
-		// Handle error
-		panic(err)
-	}
+		if err != nil {
+			// Handle error
+			panic(err)
+		}
+
 
 	// searchResult is of type SearchResult and returns hits, suggestions,
 	// and all kinds of other information from Elasticsearch.
@@ -377,7 +392,9 @@ func handlerSearch(w http.ResponseWriter, r *http.Request) {
 	// However, it ignores errors in serialization.
 	var typ Post
 	var ps []Post
+	//Iterate results and if they are type of Post (typ)
 	for _, item := range searchResult.Each(reflect.TypeOf(typ)) { // instance of
+		// Cast an item to Post
 		p := item.(Post) // p = (Post) item
 		fmt.Printf("Post by %s: %s at lat %v and lon %v\n", p.User, p.Message, p.Location.Lat, p.Location.Lon)
 		/* TODO：Perform filtering based on keywords such as web spam etc.
@@ -385,14 +402,16 @@ func handlerSearch(w http.ResponseWriter, r *http.Request) {
 			ps = append(ps, p)
 		}
 		*/
+		//Add the p to an array, equals ps.add(p) in java
 		ps = append(ps, p)
 	}
+	//Convert the go object to a string
 	js, err := json.Marshal(ps)
 	if err != nil {
 		panic(err)
 		return
 	}
-
+  //Allow cross domain visit for javascript.
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Write(js)
