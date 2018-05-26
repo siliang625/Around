@@ -1,17 +1,17 @@
 package main
 
 import (
-	"cloud.google.com/go/bigtable"
-	"cloud.google.com/go/storage"
-	"context"
+	"cloud.google.com/go/bigtable"  //big table
+	"cloud.google.com/go/storage"  //to upload image  GCS
+	"context"   								  	//to upload image
 	"encoding/json"
 	"net/http"
 	"fmt"
-	"github.com/auth0/go-jwt-middleware"
-	"github.com/dgrijalva/jwt-go"
-	"github.com/gorilla/mux"
+	"github.com/auth0/go-jwt-middleware"  //auth
+	"github.com/dgrijalva/jwt-go"  //auth
+	"github.com/gorilla/mux"  //auth
 	"github.com/pborman/uuid"
-	"gopkg.in/olivere/elastic.v3"
+	"gopkg.in/olivere/elastic.v3"    //ES
 	"io"
 	"log"
 	"reflect"
@@ -87,16 +87,21 @@ func main() {
 	}
 
 	fmt.Println("started-service")
+	// Create a new router on top of the existing http router as we need to check auth.
 	// Here we are instantiating the gorilla/mux router
 	r := mux.NewRouter()
 
+	//Create a new JWT middleware with a Option that uses the
+	//key ‘mySigningKey’ such that we know this token is from our server.
+	//The signing method is the default HS256 algorithm such that data is encrypted.
 	var jwtMiddleware = jwtmiddleware.New(jwtmiddleware.Options{
 		ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
 			return mySigningKey, nil
 		},
 		SigningMethod: jwt.SigningMethodHS256,
 	})
-
+  //use jwt middleware to manage these endpoints and if they don’t have valid token,
+	// we will reject them: reject code returned: https://golang.org/src/net/http/status.go
 	r.Handle("/post", jwtMiddleware.Handler(http.HandlerFunc(handlerPost))).Methods("POST")
 	r.Handle("/search", jwtMiddleware.Handler(http.HandlerFunc(handlerSearch))).Methods("GET")
 	r.Handle("/login", http.HandlerFunc(loginHandler)).Methods("POST")
@@ -111,6 +116,7 @@ func main() {
 //construct a Post object p to hold a user's post request
 func handlerPost(w http.ResponseWriter, r *http.Request) {
 	// Parse from body of request to get a json object.
+	// to populate username
 	user := r.Context().Value("user")
 	claims := user.(*jwt.Token).Claims
 	username := claims.(jwt.MapClaims)["username"]
@@ -124,7 +130,7 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 	// If the file size is larger than maxMemory, the rest of the data will be saved in a system temporary file.
 	r.ParseMultipartForm(32 << 20)
 
-	// Parse from from data.
+	// Parse from form data.
 	fmt.Printf("Received one post request %s\n", r.FormValue("message"))
 	lat, _ := strconv.ParseFloat(r.FormValue("lat"), 64)
 	lon, _ := strconv.ParseFloat(r.FormValue("lon"), 64)
@@ -139,8 +145,6 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
   // add a new document to the index
 	//TODO: Append its unique ID.
 	id := uuid.New()
-
-
 	p.Id = id
 
 	file, _, err := r.FormFile("image")
@@ -150,10 +154,9 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-
 	ctx := context.Background()
 
-	// replace it with your real bucket name.
+	// replace it with real bucket name.
 	_, attrs, err := saveToGCS(ctx, file, BUCKET_NAME, id)
 	if err != nil {
 		http.Error(w, "GCS is not setup", http.StatusInternalServerError)
@@ -165,7 +168,6 @@ func handlerPost(w http.ResponseWriter, r *http.Request) {
 	p.Url = attrs.MediaLink
 
 	//Save to ES
-	//saveToES(&p, id)
 	saveToES(p, id)
 
 	// Save to BigTable.
@@ -247,6 +249,7 @@ func saveToBigTable(ctx context.Context, p *Post, id string) {
 
 }
 
+//save an image to GCS
 func saveToGCS(ctx context.Context, r io.Reader, bucketName, name string) (*storage.ObjectHandle, *storage.ObjectAttrs, error) {
 	// Student questions
 	client, err := storage.NewClient(ctx)
